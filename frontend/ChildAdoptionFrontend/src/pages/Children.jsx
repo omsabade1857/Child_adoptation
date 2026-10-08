@@ -1,0 +1,515 @@
+import React, { useEffect, useState } from "react";
+import { Plus, Edit3, Trash2, Eye, Upload } from "lucide-react";
+import { api, errorMessage } from "../api";
+import {
+  PageHeader,
+  Card,
+  SearchBox,
+  Status,
+  Loading,
+  Empty,
+  Modal,
+  Button,
+  Field,
+  SelectField,
+  TextareaField,
+  Toast,
+} from "../components/UI";
+const blank = {
+  firstName: "",
+  lastName: "",
+  gender: "",
+  dob: "",
+  bloodGroup: "",
+  medicalNotes: "",
+  healthStatus: "",
+  specialNeeds: false,
+  education: "",
+  hobbies: "",
+  description: "",
+  profilePhoto: "",
+  admissionDate: "",
+  status: "AVAILABLE",
+};
+export default function Children() {
+  const [rows, setRows] = useState([]),
+    [loading, setLoading] = useState(true),
+    [filters, setFilters] = useState({
+      search: "",
+      gender: "",
+      status: "",
+      minAge: "",
+      maxAge: "",
+    }),
+    [form, setForm] = useState(blank),
+    [open, setOpen] = useState(false),
+    [editId, setEditId] = useState(null),
+    [detail, setDetail] = useState(null),
+    [photo, setPhoto] = useState(null),
+    [toast, setToast] = useState(null);
+  const load = () => {
+    setLoading(true);
+    api
+      .get("/children", {
+        params: Object.fromEntries(
+          Object.entries(filters).filter(([, v]) => v !== ""),
+        ),
+      })
+      .then((r) => {
+        const data = Array.isArray(r.data) ? r.data : (r.data?.content || []);
+        setRows(data);
+      })
+      .catch((e) => setToast({ type: "error", message: errorMessage(e) }))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      let response;
+      const payload = {
+        firstName: form.firstName,
+        lastName: form.lastName || null,
+        gender: form.gender || null,
+        dob: form.dob || null,
+        bloodGroup: form.bloodGroup || null,
+        healthStatus: form.healthStatus || null,
+        education: form.education || null,
+        medicalNotes: form.medicalNotes || null,
+        specialNeeds: Boolean(form.specialNeeds),
+        hobbies: form.hobbies || null,
+        description: form.description || null,
+        profilePhoto: form.profilePhoto || null,
+        admissionDate: form.admissionDate || null,
+        status: form.status || "AVAILABLE",
+      };
+
+      if (editId) {
+        response = await api.put(`/children/${editId}`, payload);
+      } else {
+        response = await api.post("/children", payload);
+      }
+      const id = editId || response.data?.childId;
+      if (photo && id) {
+        const fd = new FormData();
+        fd.append("file", photo);
+        await api.post(`/children/${id}/photo`, fd);
+      }
+      setToast({
+        message: `Child ${editId ? "updated" : "added"} successfully`,
+      });
+      setOpen(false);
+      setForm(blank);
+      setPhoto(null);
+      setEditId(null);
+      load();
+    } catch (e) {
+      setToast({ type: "error", message: errorMessage(e) });
+    }
+  };
+  const edit = (r) => {
+    setForm({
+      ...blank,
+      ...r,
+      firstName: r.firstName || "",
+      lastName: r.lastName || "",
+      gender: r.gender || "",
+      dob: r.dob ? r.dob.slice(0, 10) : "",
+      admissionDate: r.admissionDate ? r.admissionDate.slice(0, 10) : "",
+      bloodGroup: r.bloodGroup || "",
+      healthStatus: r.healthStatus || "",
+      education: r.education || "",
+      medicalNotes: r.medicalNotes || "",
+      hobbies: r.hobbies || "",
+      description: r.description || "",
+      status: r.status || "AVAILABLE",
+      specialNeeds: Boolean(r.specialNeeds),
+    });
+    setEditId(r.childId);
+    setOpen(true);
+  };
+  const view = async (id) => {
+    try {
+      const res = await api.get(`/children/${id}`);
+      const data = res.data || {};
+      const childData = data.child || (data.childId ? data : null);
+      if (!childData) {
+        setToast({ type: "error", message: "Failed to load child details." });
+        return;
+      }
+      setDetail({
+        child: childData,
+        medicalHistory: data.medicalHistory || [],
+        vaccinations: data.vaccinations || [],
+        adoptionRequestCount: data.adoptionRequestCount ?? 0,
+      });
+    } catch (e) {
+      setToast({ type: "error", message: errorMessage(e) });
+    }
+  };
+  const del = async (id) => {
+    if (
+      !confirm(
+        "Delete this child? This works only when no adoption request exists and the child is not adopted.",
+      )
+    )
+      return;
+    try {
+      await api.delete(`/children/${id}`);
+      setToast({ message: "Child deleted" });
+      load();
+    } catch (e) {
+      setToast({ type: "error", message: errorMessage(e) });
+    }
+  };
+  return (
+    <>
+      <PageHeader
+        title="Children"
+        description="Add, view, update and safely remove child records."
+        actions={
+          <Button
+            type="button"
+            onClick={() => {
+              setForm(blank);
+              setEditId(null);
+              setOpen(true);
+            }}
+          >
+            <Plus size={17} /> Add child
+          </Button>
+        }
+      />
+      <Card>
+        <div className="table-tools" style={{ flexWrap: "wrap" }}>
+          <SearchBox
+            value={filters.search}
+            onChange={(v) => setFilters({ ...filters, search: v })}
+            placeholder="Search child name"
+          />
+          <SelectField
+            value={filters.gender}
+            onChange={(e) => setFilters({ ...filters, gender: e.target.value })}
+          >
+            <option value="">All genders</option>
+            <option>MALE</option>
+            <option>FEMALE</option>
+            <option>OTHER</option>
+          </SelectField>
+          <SelectField
+            value={filters.status}
+            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          >
+            <option value="">All statuses</option>
+            <option>AVAILABLE</option>
+            <option>RESERVED</option>
+            <option>ADOPTED</option>
+          </SelectField>
+          <Field
+            type="number"
+            placeholder="Min age"
+            value={filters.minAge}
+            onChange={(e) => setFilters({ ...filters, minAge: e.target.value })}
+          />
+          <Field
+            type="number"
+            placeholder="Max age"
+            value={filters.maxAge}
+            onChange={(e) => setFilters({ ...filters, maxAge: e.target.value })}
+          />
+          <Button variant="secondary" onClick={load}>
+            Apply
+          </Button>
+        </div>
+        {loading ? (
+          <Loading />
+        ) : rows.length ? (
+          <div className="card-grid">
+            {rows.map((r) => (
+              <article className="child-card" key={r.childId}>
+                <div className="child-photo">
+                  {r.profilePhoto ? (
+                    <img
+                      src={
+                        r.profilePhoto.startsWith("http")
+                          ? r.profilePhoto
+                          : `http://localhost:5080${r.profilePhoto}`
+                      }
+                    />
+                  ) : (
+                    <span>{r.firstName?.[0]}</span>
+                  )}
+                  <Status value={r.status} />
+                </div>
+                <div className="child-body">
+                  <h3>
+                    {r.firstName} {r.lastName}
+                  </h3>
+                  <p>
+                    {r.gender || "Not specified"} · {r.age ?? "—"} years
+                  </p>
+                  <div className="tag-row">
+                    <span>{r.bloodGroup || "Blood group N/A"}</span>
+                    {r.specialNeeds && <span>Special needs</span>}
+                  </div>
+                  <div className="card-actions">
+                    <button onClick={() => view(r.childId)}>
+                      <Eye /> View
+                    </button>
+                    <button onClick={() => edit(r)}>
+                      <Edit3 /> Edit
+                    </button>
+                    <button
+                      className="danger-text"
+                      onClick={() => del(r.childId)}
+                    >
+                      <Trash2 /> Delete
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty />
+        )}
+      </Card>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editId ? "Update child" : "Add child"}
+        wide
+      >
+        <form onSubmit={save}>
+          <div className="form-grid">
+            <Field
+              label="Child name *"
+              value={form.firstName}
+              onChange={(e) =>
+                setForm({ ...form, firstName: e.target.value })
+              }
+              required
+            />
+            <Field
+              label="Last name"
+              value={form.lastName}
+              onChange={(e) =>
+                setForm({ ...form, lastName: e.target.value })
+              }
+            />
+            <SelectField
+              label="Gender *"
+              value={form.gender}
+              required
+              onChange={(e) => setForm({ ...form, gender: e.target.value })}
+            >
+              <option value="">Select</option>
+              <option>MALE</option>
+              <option>FEMALE</option>
+              <option>OTHER</option>
+            </SelectField>
+            <Field
+              label="Date of birth *"
+              type="date"
+              max={new Date().toISOString().slice(0, 10)}
+              value={form.dob}
+              required
+              onChange={(e) => setForm({ ...form, dob: e.target.value })}
+            />
+            <Field
+              label="Blood group"
+              value={form.bloodGroup}
+              onChange={(e) =>
+                setForm({ ...form, bloodGroup: e.target.value })
+              }
+            />
+            <Field
+              label="Admission date *"
+              type="date"
+              max={new Date().toISOString().slice(0, 10)}
+              value={form.admissionDate}
+              required
+              onChange={(e) =>
+                setForm({ ...form, admissionDate: e.target.value })
+              }
+            />
+            <Field
+              label="Hobbies"
+              value={form.hobbies}
+              onChange={(e) =>
+                setForm({ ...form, hobbies: e.target.value })
+              }
+            />
+            <Field
+              label="Health status"
+              value={form.healthStatus || ""}
+              onChange={(e) =>
+                setForm({ ...form, healthStatus: e.target.value })
+              }
+            />
+            <Field
+              label="Education"
+              value={form.education || ""}
+              onChange={(e) => setForm({ ...form, education: e.target.value })}
+            />
+            <SelectField
+              label="Child status"
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value })}
+            >
+              <option>AVAILABLE</option>
+              <option>RESERVED</option>
+              <option>ADOPTED</option>
+            </SelectField>
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={form.specialNeeds}
+                onChange={(e) =>
+                  setForm({ ...form, specialNeeds: e.target.checked })
+                }
+              />
+              <span>Special needs</span>
+            </label>
+            <label className="field">
+              <span>Photo (JPG/PNG/WEBP, max 5 MB)</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(e) => setPhoto(e.target.files?.[0] || null)}
+              />
+            </label>
+            <div className="full">
+              <TextareaField
+                label="Medical notes"
+                value={form.medicalNotes || ""}
+                onChange={(e) =>
+                  setForm({ ...form, medicalNotes: e.target.value })
+                }
+              />
+            </div>
+            <div className="full">
+              <TextareaField
+                label="Description"
+                value={form.description || ""}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.target.value })
+                }
+              />
+            </div>
+          </div>
+          <div className="modal-actions">
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button>Save child</Button>
+          </div>
+        </form>
+      </Modal>
+      <Modal
+        open={Boolean(detail && detail.child)}
+        onClose={() => setDetail(null)}
+        title="Child details"
+        wide
+      >
+        {detail && (
+          <>
+            <div className="child-detail-hero">
+              {detail.child.profilePhoto ? (
+                <img
+                  src={
+                    detail.child.profilePhoto.startsWith("http")
+                      ? detail.child.profilePhoto
+                      : `http://localhost:5080${detail.child.profilePhoto}`
+                  }
+                  alt={detail.child.firstName}
+                />
+              ) : (
+                <div className="child-detail-placeholder">
+                  {detail.child.firstName?.[0]}
+                </div>
+              )}
+              <div>
+                <h3>
+                  {detail.child.firstName} {detail.child.lastName}
+                </h3>
+                <Status value={detail.child.status} />
+                <p>
+                  {detail.child.gender || "Not specified"} ·{" "}
+                  {detail.child.age ?? "—"} years
+                </p>
+              </div>
+            </div>
+            <div className="detail-grid">
+              {Object.entries(detail.child)
+                .filter(
+                  ([k]) =>
+                    ![
+                      "profilePhoto",
+                      "firstName",
+                      "lastName",
+                      "status",
+                    ].includes(k),
+                )
+                .map(([k, v]) => (
+                  <div key={k}>
+                    <span>{k.replace(/([A-Z])/g, " $1")}</span>
+                    <b>
+                      {typeof v === "boolean"
+                        ? v
+                          ? "Yes"
+                          : "No"
+                        : (v ?? "—").toString().slice(0, 80)}
+                    </b>
+                  </div>
+                ))}
+              <div>
+                <span>Adoption requests</span>
+                <b>{detail.adoptionRequestCount ?? 0}</b>
+              </div>
+            </div>
+            <h3>Medical history</h3>
+            {detail.medicalHistory?.length ? (
+              <div className="detail-list">
+                {detail.medicalHistory.map((m) => (
+                  <div key={m.medicalId}>
+                    <b>{m.disease || "Medical record"}</b>
+                    <span>
+                      {m.allergy || m.treatment || "No additional details"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted-text">No medical history recorded.</p>
+            )}
+            <h3>Vaccinations</h3>
+            {detail.vaccinations?.length ? (
+              <div className="detail-list">
+                {detail.vaccinations.map((v) => (
+                  <div key={v.vaccinationId}>
+                    <b>{v.vaccineName}</b>
+                    <span>
+                      {v.vaccineDate
+                        ? new Date(v.vaccineDate).toLocaleDateString("en-IN")
+                        : "Date not recorded"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted-text">No vaccinations recorded.</p>
+            )}
+          </>
+        )}
+      </Modal>
+      <Toast toast={toast} onClose={() => setToast(null)} />
+    </>
+  );
+}
